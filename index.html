@@ -1,0 +1,787 @@
+<!DOCTYPE html><html lang="de"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Strawberry Farmer - Dark Night Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: sans-serif; user-select: none; background: #000; }
+        canvas { display: block; }
+        
+        #game-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* Container für die roten Erdbeer-Kleckse */
+        #splatter-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 25;
+            overflow: hidden;
+        }
+
+        .splat {
+            position: absolute;
+            background: radial-gradient(circle, rgba(230,20,50,0.85) 0%, rgba(180,10,30,0.6) 70%, rgba(150,0,20,0) 100%);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: opacity 2s ease-out;
+            pointer-events: none;
+        }
+
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 6px; height: 6px;
+            background: white; border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none; opacity: 0.8;
+        }
+        #hud {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(0,0,0,0.85); color: white;
+            padding: 15px; border-radius: 8px; font-size: 15px;
+            pointer-events: none; border: 1px solid #333;
+            line-height: 1.4;
+        }
+        #scoreboard {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(0,0,0,0.85); color: white;
+            padding: 15px; border-radius: 8px; font-size: 14px;
+            pointer-events: none; border: 1px solid #ffcc00;
+            min-width: 180px;
+        }
+        #scoreboard h3 { margin: 0 0 8px 0; font-size: 15px; color: #ffcc00; text-align: center; }
+        #scoreboard ol { margin: 0; padding-left: 20px; }
+        #scoreboard li { margin-bottom: 4px; }
+        .player-row { display: flex; justify-content: space-between; }
+        .current-player { color: #ff5555; font-weight: bold; }
+
+        #interaction {
+            position: absolute; top: 55%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff5577; font-weight: bold; font-size: 18px;
+            text-shadow: 2px 2px 4px #000; display: none;
+            pointer-events: none; text-align: center;
+        }
+        #alert-zone {
+            position: absolute; top: 15%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff3333; font-weight: bold; font-size: 26px;
+            text-shadow: 0 0 10px #ff0000; display: none;
+            text-align: center; pointer-events: none;
+            animation: blinker 0.8s linear infinite;
+        }
+        @keyframes blinker { 50% { opacity: 0.3; } }
+
+        #hotbar {
+            position: absolute; bottom: 20px; left: 50%;
+            transform: translateX(-50%); display: flex; gap: 10px;
+            background: rgba(0,0,0,0.8); padding: 8px;
+            border-radius: 10px; border: 2px solid #444;
+            z-index: 20;
+        }
+        .slot {
+            width: 70px; height: 70px; background: rgba(50,50,50,0.6);
+            border: 2px solid #555; border-radius: 6px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: #aaa; font-size: 11px; font-weight: bold; position: relative;
+        }
+        .slot .key-bind { position: absolute; top: 2px; left: 4px; color: #fff; font-size: 10px; }
+        .slot .amount { position: absolute; bottom: 2px; right: 4px; color: #ff5577; font-size: 11px; }
+        .slot.active {
+            border-color: #ff5577; background: rgba(92, 30, 46, 0.4); color: #fff;
+            box-shadow: 0 0 10px rgba(255,85,119,0.3);
+        }
+
+        #intro {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15,10,10,0.9); color: white;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; cursor: pointer; z-index: 30;
+        }
+        .btn { background: #5c1e2e; color: white; border: none; padding: 12px 24px; font-size: 18px; border-radius: 5px; cursor: pointer; margin-top: 15px; font-weight: bold; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script></head><body>
+
+    <div id="game-container"></div>
+    <div id="splatter-container"></div>
+
+    <div id="intro">
+        <h1>3D Strawberry Farmer</h1>
+        <p style="color: #aaa;">Überlebe die pechschwarze Nacht mit deiner automatischen Taschenlampe!</p>
+        <button class="btn">SPIEL STARTEN</button>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="interaction">Drücke E</div>
+    <div id="alert-zone">⚠️ WASSERKNAPPHEIT! STIRBT IN: <span id="timer-val">10</span>s</div>
+    
+    <div id="hud">
+        Geld: <span id="money">100</span>$<br>
+        Erdbeer-Samen: <span id="seeds">1</span><br>
+        Ernte (Erdbeeren): <span id="weed">0</span>g (Wert: <span id="weed-value-display">50</span>$/g)<br>
+        Töpfe: <span id="pot-count">3</span>/12<br>
+        Wachstums-Lvl: <span id="growth-lvl">0</span> (+<span id="growth-bonus">0</span>%)<br>
+        uuiuuis: <span id="uuiuuis-count">0</span><br>
+        <hr style="border: 0; border-top: 1px solid #444; margin: 5px 0;">
+        Auto-Einkommen: <span id="auto-income-display">0</span>$/s
+    </div>
+
+    <div id="scoreboard">
+        <h3>🏆 BESTENLISTE</h3>
+        <ol id="leaderboard-list">
+            <!-- Wird per JS befüllt -->
+        </ol>
+    </div>
+
+    <div id="hotbar">
+        <div class="slot active" id="slot-1"><span class="key-bind">1</span><span style="font-size: 20px;">✋</span><span>Hände</span></div>
+        <div class="slot" id="slot-2"><span class="key-bind">2</span><span style="font-size: 20px;">💧</span><span>Kanne</span><span class="amount" id="water-display">0%</span></div>
+        <div class="slot" id="slot-3"><span class="key-bind">3</span><span style="font-size: 20px;">🟫</span><span>Dünger</span><span class="amount" id="fertilizer-display">0</span></div>
+        <div class="slot" id="slot-4"><span class="key-bind">4</span><span style="font-size: 20px;">🍓</span><span>Erdbeere</span><span class="amount" id="weed-hotbar-display">0g</span></div>
+    </div>
+
+    <script>
+        let inventory = { 
+            money: 100, seeds: 1, weed: 0, water: 0, fertilizer: 0, 
+            hasWaterCan: false, potCost: 150, growthLevel: 0, uuiuuis: 0,
+            weedValue: 50, weedUpgradeCost: 500,
+            hasAutoMachine: false, autoMachineCost: 50000, autoMachineLevel: 0, autoIncome: 0
+        };
+        let activeSlot = 1;
+        let plants = [];
+        let interactiveObjects = [];
+        let colliders = [];
+        let currentInteractTarget = null;
+        
+        let timeOfDay = 0; 
+        const dayDuration = 60; 
+        let autoIncomeTimer = 0;
+
+        let velocityY = 0;
+        const gravity = 32.0;
+        const jumpForce = 12.0;
+        const floorHeight = 2.0;
+        let canJump = true;
+
+        let leaderboardData = [
+            { name: "SnoopStraw", uuiuuis: 15 },
+            { name: "BerryThumb", uuiuuis: 8 },
+            { name: "Du (Spieler)", uuiuuis: 0, isPlayer: true },
+            { name: "BerryMaster", uuiuuis: 3 },
+            { name: "FarmerBob", uuiuuis: 1 }
+        ];
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xa0e0ff);
+
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.2, 150);
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(1);
+        
+        document.getElementById('game-container').appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambientLight);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.4);
+        dirLight.position.set(5, 20, 5);
+        scene.add(dirLight);
+
+        // Die überarbeitete Taschenlampe mit stark fokussiertem Kegel (SpotLight)
+        const flashlight = new THREE.SpotLight(0xffffff, 0, 35, Math.PI / 6, 0.3, 1);
+        scene.add(flashlight);
+        scene.add(flashlight.target); 
+
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshBasicMaterial({ color: 0x4d6e27 }));
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        const grassGeo = new THREE.BoxGeometry(0.1, 0.4, 0.1);
+        const grassMat = new THREE.MeshBasicMaterial({ color: 0x5c8a36 });
+        const grassInstanced = new THREE.Group();
+        
+        for (let i = 0; i < 400; i++) {
+            const blade = new THREE.Mesh(grassGeo, grassMat);
+            let gx = (Math.random() - 0.5) * 140;
+            let gz = (Math.random() - 0.5) * 140;
+            if (Math.abs(gx) < 12 && Math.abs(gz) < 12) continue; 
+            if (gx < -12 && gx > -32 && gz > -4 && gz < 12) continue; 
+            if (gx > 12 && gx < 32 && gz > -4 && gz < 12) continue; 
+            blade.position.set(gx, 0.2, gz);
+            blade.rotation.y = Math.random() * Math.PI;
+            grassInstanced.add(blade);
+        }
+        scene.add(grassInstanced);
+
+        function createTree(x, z) {
+            const treeGroup = new THREE.Group();
+            treeGroup.position.set(x, 0, z);
+            const trunkGeo = new THREE.CylinderGeometry(0.4, 0.6, 4, 8);
+            const trunkMat = new THREE.MeshBasicMaterial({ color: 0x5a3d28 });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 2;
+            treeGroup.add(trunk);
+
+            const leavesGeo = new THREE.ConeGeometry(2.2, 4.5, 6);
+            const leavesMat = new THREE.MeshBasicMaterial({ color: 0x1e4620 });
+            const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+            leaves.position.y = 5;
+            treeGroup.add(leaves);
+            scene.add(treeGroup);
+            
+            colliders.push(new THREE.Box3().setFromObject(trunk));
+        }
+
+        for (let i = 0; i < 45; i++) {
+            let angle = Math.random() * Math.PI * 2;
+            let radius = 35 + Math.random() * 45;
+            createTree(Math.cos(angle) * radius, Math.sin(angle) * radius);
+        }
+
+        const controls = new THREE.PointerLockControls(camera, document.body);
+        const intro = document.getElementById('intro');
+        intro.addEventListener('click', () => { controls.lock(); });
+        controls.addEventListener('lock', () => { intro.style.display = 'none'; });
+        controls.addEventListener('unlock', () => { intro.style.display = 'flex'; });
+
+        const keys = { w: false, a: false, s: false, d: false };
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = true;
+            if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.s = true;
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = true;
+            if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = true;
+            if (e.code === 'KeyE') handleInteraction();
+            if (e.code === 'Digit1') switchSlot(1);
+            if (e.code === 'Digit2') switchSlot(2);
+            if (e.code === 'Digit3') switchSlot(3);
+            if (e.code === 'Digit4') switchSlot(4); 
+            
+            if (e.code === 'Space' && canJump && controls.isLocked) {
+                velocityY = jumpForce;
+                canJump = false;
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = false;
+            if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.s = false;
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = false;
+            if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = false;
+        });
+
+        function switchSlot(slotNum) {
+            document.getElementById(`slot-${activeSlot}`).classList.remove('active');
+            activeSlot = slotNum;
+            document.getElementById(`slot-${activeSlot}`).classList.add('add');
+            document.getElementById(`slot-${activeSlot}`).classList.add('active');
+            if (currentInteractTarget) checkInteractions();
+        }
+
+        camera.position.set(0, floorHeight, 25);
+
+        function createHouse(x, z, color, width = 12, depth = 12) {
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+            const wallMaterial = new THREE.MeshBasicMaterial({ color: color, side: THREE.DoubleSide });
+            const doorWidth = 2.5;
+
+            const backWall = new THREE.Mesh(new THREE.BoxGeometry(width, 6, 0.1), wallMaterial); backWall.position.set(0, 3, -depth / 2); group.add(backWall);
+            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, 6, depth), wallMaterial); leftWall.position.set(-width / 2, 3, 0); group.add(leftWall);
+            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, 6, depth), wallMaterial); rightWall.position.set(width / 2, 3, 0); group.add(rightWall);
+            const frontWallLeft = new THREE.Mesh(new THREE.BoxGeometry((width - doorWidth) / 2, 6, 0.1), wallMaterial); frontWallLeft.position.set(-width / 4 - doorWidth / 4, 3, depth / 2); group.add(frontWallLeft);
+            const frontWallRight = new THREE.Mesh(new THREE.BoxGeometry((width - doorWidth) / 2, 6, 0.1), wallMaterial); frontWallRight.position.set(width / 4 + doorWidth / 4, 3, depth / 2); group.add(frontWallRight);
+
+            const interiorFloor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.MeshBasicMaterial({ color: 0x6e4720 }));
+            interiorFloor.rotation.x = -Math.PI / 2; interiorFloor.position.y = 0.02; group.add(interiorFloor);
+
+            colliders.push(new THREE.Box3().setFromObject(backWall), new THREE.Box3().setFromObject(leftWall), new THREE.Box3().setFromObject(rightWall), new THREE.Box3().setFromObject(frontWallLeft), new THREE.Box3().setFromObject(frontWallRight));
+
+            const roof = new THREE.Mesh(new THREE.ConeGeometry(width * 0.75, 3.5, 4), new THREE.MeshBasicMaterial({ color: 0x4a2311 }));
+            roof.position.y = 7.75; roof.rotation.y = Math.PI / 4; group.add(roof);
+            scene.add(group);
+        }
+
+        createHouse(0, 0, 0x5c1e2e, 16, 16); 
+        createHouse(-22, 4, 0x1e3c5c, 16, 12); 
+        createHouse(22, 4, 0x5c5a1e, 12, 12);  
+
+        const well = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 12), new THREE.MeshBasicMaterial({ color: 0x555555 }));
+        well.position.set(22, 1, 15); scene.add(well);
+        interactiveObjects.push({ mesh: well, type: 'well', text: '' });
+        colliders.push(new THREE.Box3().setFromObject(well));
+
+        const waterCanMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.7, 6), new THREE.MeshBasicMaterial({ color: 0x0055ff }));
+        waterCanMesh.position.set(20, 0.8, 4); scene.add(waterCanMesh);
+        interactiveObjects.push({ mesh: waterCanMesh, type: 'pickup_can', text: 'E - Gießkanne aufheben' });
+
+        const basketMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.4, 0.6, 6), new THREE.MeshBasicMaterial({ color: 0x8b5a2b }));
+        basketMesh.position.set(24, 0.4, 4); scene.add(basketMesh);
+        interactiveObjects.push({ mesh: basketMesh, type: 'pickup_fertilizer', text: 'E - Dünger nehmen (+5)' });
+
+        const shopCounter = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.8, 1.2), new THREE.MeshBasicMaterial({ color: 0xffcc00 }));
+        shopCounter.position.set(-26, 0.9, 4); scene.add(shopCounter);
+        interactiveObjects.push({ mesh: shopCounter, type: 'shop_buy', text: 'E - Erdbeer-Samen kaufen (10$)' });
+
+        const potCounterMesh = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.8, 1.2), new THREE.MeshBasicMaterial({ color: 0x33cc33 }));
+        potCounterMesh.position.set(-23, 0.9, 4); scene.add(potCounterMesh);
+        interactiveObjects.push({ mesh: potCounterMesh, type: 'shop_buy_pot', text: '' });
+
+        const speedCounterMesh = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.8, 1.2), new THREE.MeshBasicMaterial({ color: 0x00cccc }));
+        speedCounterMesh.position.set(-20, 0.9, 4); scene.add(speedCounterMesh);
+        interactiveObjects.push({ mesh: speedCounterMesh, type: 'shop_buy_growth', text: '' }); 
+
+        const sellCounter = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.8, 1.2), new THREE.MeshBasicMaterial({ color: 0xddaa00 }));
+        sellCounter.position.set(-17, 0.9, 4); scene.add(sellCounter);
+        interactiveObjects.push({ mesh: sellCounter, type: 'shop_sell', text: '' }); 
+
+        const autoMachineCounter = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.8, 1.2), new THREE.MeshBasicMaterial({ color: 0x9933ff }));
+        autoMachineCounter.position.set(-14, 0.9, 4); scene.add(autoMachineCounter);
+        interactiveObjects.push({ mesh: autoMachineCounter, type: 'shop_auto_machine', text: '' });
+
+        const potSpawnPoints = [
+            {x: -4.5, z: 4},  {x: -1.5, z: 4},  {x: 1.5, z: 4},  {x: 4.5, z: 4},
+            {x: -4.5, z: 0},  {x: -1.5, z: 0},  {x: 1.5, z: 0},  {x: 4.5, z: 0},
+            {x: -4.5, z: -4}, {x: -1.5, z: -4}, {x: 1.5, z: -4}, {x: 4.5, z: -4}
+        ];
+        const potGeometry = new THREE.CylinderGeometry(0.45, 0.3, 0.6, 8);
+        const potMaterial = new THREE.MeshBasicMaterial({ color: 0x5a2e05 });
+        const plantGeometry = new THREE.CylinderGeometry(0.08, 0.08, 1, 5);
+
+        function createPot(index) {
+            let pt = potSpawnPoints[index];
+            const pot = new THREE.Mesh(potGeometry, potMaterial);
+            pot.position.set(pt.x, 0.3, pt.z);
+            scene.add(pot);
+
+            const plantMesh = new THREE.Mesh(plantGeometry, new THREE.MeshBasicMaterial({ color: 0xff3355 }));
+            plantMesh.position.set(pt.x, 0.6, pt.z);
+            plantMesh.visible = false;
+            scene.add(plantMesh);
+
+            plants.push({
+                id: index, plantMesh: plantMesh, status: 'empty', watered: false, fertilized: false, growth: 0,
+                dryTriggered: false, dryTimer: 0, hadDryEvent: false
+            });
+            interactiveObjects.push({ mesh: pot, type: 'pot', id: index, text: '' });
+        }
+
+        for(let i=0; i<3; i++) { createPot(i); }
+
+        const raycaster = new THREE.Raycaster();
+        const centerPointer = new THREE.Vector2(0, 0);
+
+        function checkInteractions() {
+            if (activeSlot === 4) {
+                currentInteractTarget = { type: 'consume_weed' };
+                document.getElementById('interaction').style.display = 'block';
+                document.getElementById('interaction').innerText = inventory.weed > 0 ? "E - Erdbeere essen (1g)" : "Keine Erdbeeren im Inventar!";
+                return;
+            }
+
+            raycaster.setFromCamera(centerPointer, camera);
+            const intersects = raycaster.intersectObjects(interactiveObjects.map(o => o.mesh));
+            
+            if (intersects.length > 0 && intersects[0].distance < 5.0) {
+                const data = interactiveObjects.find(o => o.mesh === intersects[0].object);
+                currentInteractTarget = data;
+                document.getElementById('interaction').style.display = 'block';
+                
+                if(data.type === 'well') {
+                    if(!inventory.hasWaterCan) data.text = "Du benötigst eine Gießkanne aus dem gelben Haus!";
+                    else data.text = inventory.water >= 100 ? "[Gießkanne bereits voll]" : "E - Gießkanne auffüllen";
+                }
+                if(data.type === 'pot') {
+                    let p = plants[data.id];
+                    if(p.status === 'empty') data.text = "E - Erdbeer-Samen einpflanzen (-1 Samen)";
+                    if(p.status === 'planted') {
+                        if(p.dryTriggered) {
+                            data.text = (activeSlot === 2) ? `⚠️ NOTFALL! Drücke E zum Rettungsgießen!` : "⚠️ NOTFALL! Nimm die Gießkanne (Taste 2)!";
+                        } else {
+                            if (activeSlot === 2) data.text = p.watered ? "[Bereits gegossen]" : "E - Pflanze gießen (-20% Wasser)";
+                            else if (activeSlot === 3) data.text = p.fertilized ? "[Bereits gedüngt]" : "E - Pflanze düngen (-1 Dünger)";
+                            else data.text = `Wächst: ${Math.floor(p.growth)}% ` + (p.watered ? "[Feucht] " : "[TROCKEN] ") + (p.fertilized ? "[Gedüngt]" : "[Braucht Dünger]");
+                        }
+                    }
+                    if(p.status === 'grown') data.text = "E - Erdbeeren ernten!";
+                    if(p.status === 'dead') data.text = "E - Tote Pflanze entfernen";
+                }
+                if(data.type === 'shop_buy_pot') {
+                    data.text = plants.length < 12 ? `E - Weiteren Blumentopf kaufen (${inventory.potCost}$)` : "Maximale Topf-Anzahl (12) erreicht!";
+                }
+                if(data.type === 'shop_buy_growth') {
+                    data.text = "E - Tempo erhöhen (400$) | Q - uuiuuis kaufen (700€)";
+                }
+                if(data.type === 'shop_sell') {
+                    data.text = `E - Ernte verkaufen (${inventory.weedValue}$/g) \n [Shift + E] - Erdbeer-Wert upgraden (${inventory.weedUpgradeCost}$)`;
+                }
+                if(data.type === 'shop_auto_machine') {
+                    if(!inventory.hasAutoMachine) {
+                        data.text = `E - Automatische Erdbeer-Maschine kaufen (${inventory.autoMachineCost}$) \n (Generiert passiv 20$/s)`;
+                    } else {
+                        data.text = `E - Auto-Maschine upgraden (${inventory.autoMachineCost}$) \n (Aktuell: +${inventory.autoIncome}$/s -> Nächstes Level: +20$/s)`;
+                    }
+                }
+                document.getElementById('interaction').innerText = data.text;
+            } else {
+                currentInteractTarget = null;
+                document.getElementById('interaction').style.display = 'none';
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (currentInteractTarget) {
+                if (e.code === 'KeyQ' && currentInteractTarget.type === 'shop_buy_growth') {
+                    buyUuiuuis();
+                }
+                if (e.code === 'KeyE' && e.shiftKey && currentInteractTarget.type === 'shop_sell') {
+                    upgradeWeedValue();
+                }
+            }
+        });
+
+        function buyUuiuuis() {
+            if (inventory.money >= 700) {
+                inventory.money -= 700;
+                inventory.uuiuuis++;
+                updateHUD();
+                updateScoreboard();
+            }
+        }
+
+        function upgradeWeedValue() {
+            if (inventory.money >= inventory.weedUpgradeCost) {
+                inventory.money -= inventory.weedUpgradeCost;
+                inventory.weedValue += 10; 
+                inventory.weedUpgradeCost = Math.floor(inventory.weedUpgradeCost * 2.5); 
+                updateHUD();
+                if(currentInteractTarget) checkInteractions();
+            }
+        }
+
+        function spawnJuiceSplatter() {
+            const container = document.getElementById('splatter-container');
+            const splat = document.createElement('div');
+            splat.className = 'splat';
+            
+            const size = Math.floor(Math.random() * 120) + 60;
+            const x = Math.floor(Math.random() * window.innerWidth);
+            const y = Math.floor(Math.random() * window.innerHeight);
+            
+            splat.style.width = `${size}px`;
+            splat.style.height = `${size}px`;
+            splat.style.left = `${x}px`;
+            splat.style.top = `${y}px`;
+            splat.style.opacity = '1';
+            
+            container.appendChild(splat);
+            
+            setTimeout(() => {
+                splat.style.opacity = '0';
+            }, 8000);
+            
+            setTimeout(() => {
+                splat.remove();
+            }, 10000);
+        }
+
+        function handleInteraction() {
+            if (window.event && window.event.shiftKey) return; 
+            if (!currentInteractTarget) return;
+            const type = currentInteractTarget.type;
+
+            if (type === 'consume_weed') {
+                if(inventory.weed > 0) {
+                    inventory.weed--;
+                    spawnJuiceSplatter(); 
+                    updateHUD();
+                    checkInteractions();
+                }
+                return;
+            }
+
+            if (type === 'pickup_can') {
+                inventory.hasWaterCan = true; inventory.water = 100; updateHUD();
+                switchSlot(2);
+            } else if (type === 'pickup_fertilizer') {
+                inventory.fertilizer += 5; updateHUD();
+            } else if (type === 'well') {
+                if(inventory.hasWaterCan && inventory.water < 100) { inventory.water = 100; updateHUD(); }
+            } else if (type === 'shop_buy') {
+                if(inventory.money >= 10) { inventory.money -= 10; inventory.seeds++; updateHUD(); }
+            } else if (type === 'shop_buy_pot') {
+                if (plants.length < 12 && inventory.money >= inventory.potCost) {
+                    inventory.money -= inventory.potCost;
+                    createPot(plants.length);
+                    inventory.potCost += 75; updateHUD();
+                }
+            } else if (type === 'shop_buy_growth') {
+                if (inventory.money >= 400) {
+                    inventory.money -= 400;
+                    inventory.growthLevel++;
+                    updateHUD();
+                }
+            } else if (type === 'shop_sell') {
+                if(inventory.weed > 0) { 
+                    inventory.money += inventory.weed * inventory.weedValue; 
+                    inventory.weed = 0; 
+                    updateHUD(); 
+                }
+            } 
+            else if (type === 'shop_auto_machine') {
+                if (inventory.money >= inventory.autoMachineCost) {
+                    inventory.money -= inventory.autoMachineCost;
+                    inventory.hasAutoMachine = true;
+                    inventory.autoMachineLevel++;
+                    inventory.autoIncome += 20; 
+                    inventory.autoMachineCost = Math.floor(inventory.autoMachineCost * 1.8); 
+                    updateHUD();
+                    checkInteractions();
+                }
+            }
+            else if (type === 'pot') {
+                let p = plants[currentInteractTarget.id];
+                if(p.status === 'empty' && inventory.seeds > 0) {
+                    inventory.seeds--; p.status = 'planted'; p.growth = 0; p.watered = true; p.fertilized = false; p.dryTriggered = false; p.hadDryEvent = false;
+                    p.plantMesh.visible = true; p.plantMesh.scale.set(1, 0.1, 1); p.plantMesh.material.color.setHex(0xff3355); updateHUD();
+                } 
+                else if(p.status === 'planted' && activeSlot === 2 && inventory.hasWaterCan && inventory.water > 0) {
+                    if(p.dryTriggered || !p.watered) { 
+                        p.dryTriggered = false; 
+                        p.dryTimer = 0; 
+                        p.watered = true; 
+                        p.plantMesh.material.color.setHex(0xff3355); 
+                        inventory.water -= 20; 
+                        updateHUD(); 
+                    }
+                } 
+                else if(p.status === 'planted' && activeSlot === 3 && !p.fertilized && inventory.fertilizer > 0) {
+                    inventory.fertilizer--; p.fertilized = true; updateHUD();
+                } 
+                else if(p.status === 'grown') {
+                    inventory.weed += Math.floor(Math.random() * 3) + 2; p.status = 'empty'; p.plantMesh.visible = false; updateHUD();
+                } else if(p.status === 'dead') {
+                    p.status = 'empty'; p.plantMesh.visible = false;
+                }
+            }
+            if(currentInteractTarget) checkInteractions();
+        }
+
+        function updateHUD() {
+            document.getElementById('money').innerText = inventory.money;
+            document.getElementById('seeds').innerText = inventory.seeds;
+            document.getElementById('weed').innerText = inventory.weed;
+            document.getElementById('weed-hotbar-display').innerText = `${inventory.weed}g`; 
+            document.getElementById('pot-count').innerText = plants.length;
+            document.getElementById('water-display').innerText = inventory.hasWaterCan ? `${inventory.water}%` : "0%";
+            document.getElementById('fertilizer-display').innerText = inventory.fertilizer;
+            document.getElementById('growth-lvl').innerText = inventory.growthLevel;
+            document.getElementById('growth-bonus').innerText = inventory.growthLevel * 25;
+            document.getElementById('uuiuuis-count').innerText = inventory.uuiuuis;
+            document.getElementById('weed-value-display').innerText = inventory.weedValue;
+            document.getElementById('auto-income-display').innerText = inventory.autoIncome;
+        }
+
+        function updateScoreboard() {
+            leaderboardData.forEach(entry => {
+                if(entry.isPlayer) {
+                    entry.uuiuuis = inventory.uuiuuis;
+                }
+            });
+            leaderboardData.sort((a, b) => b.uuiuuis - a.uuiuuis);
+            const listEl = document.getElementById('leaderboard-list');
+            listEl.innerHTML = "";
+            leaderboardData.forEach(entry => {
+                const li = document.createElement('li');
+                if(entry.isPlayer) {
+                    li.className = "current-player";
+                }
+                li.innerHTML = `<div class="player-row"><span>${entry.name}</span><span>${entry.uuiuuis} uui</span></div>`;
+                listEl.appendChild(li);
+            });
+        }
+
+        updateScoreboard();
+
+        const clock = new THREE.Clock();
+        const playerSpeed = 15.0; 
+
+        function checkWallCollision(newPos) {
+            const playerBox = new THREE.Box3(
+                new THREE.Vector3(newPos.x - 0.5, newPos.y - 1.8, newPos.z - 0.5),
+                new THREE.Vector3(newPos.x + 0.5, newPos.y + 0.5, newPos.z + 0.5)
+            );
+            for (let i = 0; i < colliders.length; i++) {
+                if (playerBox.intersectsBox(colliders[i])) return true;
+            }
+            return false;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.05);
+
+            if(inventory.hasAutoMachine) {
+                autoIncomeTimer += delta;
+                if(autoIncomeTimer >= 1.0) { 
+                    inventory.money += inventory.autoIncome;
+                    autoIncomeTimer -= 1.0;
+                    updateHUD();
+                }
+            }
+
+            timeOfDay += (delta / dayDuration) * Math.PI * 2;
+            if(timeOfDay > Math.PI * 2) timeOfDay -= Math.PI * 2;
+
+            let lightIntensity = Math.sin(timeOfDay); 
+            
+            if (lightIntensity > 0) { 
+                // Tagmodus
+                scene.background.setHSL(0.55, 0.7, 0.5 + lightIntensity * 0.3);
+                ambientLight.color.setRGB(0.8 + lightIntensity * 0.2, 0.8 + lightIntensity * 0.2, 0.8 + lightIntensity * 0.2);
+                dirLight.intensity = 0.4 + lightIntensity * 0.6;
+                flashlight.intensity = 0;
+            } else {
+                // Extrem dunkler Nachtmodus (Pechschwarz)
+                scene.background.setHSL(0.65, 0.8, 0.0);
+                ambientLight.color.setRGB(0.0, 0.0, 0.0); // Absolut kein Umgebungslicht
+                dirLight.intensity = 0;
+                
+                // Taschenlampe schaltet sich bei Nacht automatisch ein
+                if (controls.isLocked) {
+                    flashlight.intensity = 4.0; // Hohe Intensität für starken Kontrast
+                } else {
+                    flashlight.intensity = 0;
+                }
+            }
+
+            // Taschenlampe und Fokuspunkt folgen der Kamera
+            flashlight.position.copy(camera.position);
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            flashlight.target.position.copy(camera.position).add(dir);
+
+            // Spieler-Bewegung & Kollision
+            if (controls.isLocked) {
+                const speed = playerSpeed * delta;
+                const nextPos = camera.position.clone();
+
+                const camDirForward = new THREE.Vector3();
+                camera.getWorldDirection(camDirForward);
+                camDirForward.y = 0;
+                camDirForward.normalize();
+
+                const camDirRight = new THREE.Vector3();
+                camDirRight.crossVectors(camera.up, camDirForward).normalize().negate();
+
+                if (keys.w) nextPos.addScaledVector(camDirForward, speed);
+                if (keys.s) nextPos.addScaledVector(camDirForward, -speed);
+                if (keys.a) nextPos.addScaledVector(camDirRight, -speed);
+                if (keys.d) nextPos.addScaledVector(camDirRight, speed);
+
+                velocityY -= gravity * delta;
+                nextPos.y += velocityY * delta;
+
+                if (nextPos.y < floorHeight) {
+                    nextPos.y = floorHeight;
+                    velocityY = 0;
+                    canJump = true;
+                }
+
+                if (Math.abs(nextPos.x) > 90) nextPos.x = camera.position.x;
+                if (Math.abs(nextPos.z) > 90) nextPos.z = camera.position.z;
+
+                let testPos = camera.position.clone();
+                testPos.x = nextPos.x;
+                if (checkWallCollision(testPos)) {
+                    nextPos.x = camera.position.x;
+                }
+                testPos = camera.position.clone();
+                testPos.z = nextPos.z;
+                if (checkWallCollision(testPos)) {
+                    nextPos.z = camera.position.z;
+                }
+
+                camera.position.x = nextPos.x;
+                camera.position.z = nextPos.z;
+                camera.position.y = nextPos.y;
+
+                checkInteractions();
+            }
+
+            // Pflanzen Logik
+            let anyEmergency = false;
+            let emergencyTimeLeft = 10;
+
+            plants.forEach(p => {
+                if (p.status === 'planted') {
+                    let baseGrowthRate = 4.5; 
+                    let bonusMultiplier = 1.0 + (inventory.growthLevel * 0.25);
+                    let finalSpeed = baseGrowthRate * bonusMultiplier;
+
+                    if (p.fertilized) finalSpeed *= 1.5;
+
+                    p.growth += finalSpeed * delta;
+
+                    if (p.growth > 30 && p.growth < 80 && !p.hadDryEvent && Math.random() < 0.003) {
+                        p.dryTriggered = true;
+                        p.hadDryEvent = true;
+                        p.watered = false;
+                        p.dryTimer = 10.0; 
+                        p.plantMesh.material.color.setHex(0x996633); 
+                    }
+
+                    if (p.dryTriggered) {
+                        p.dryTimer -= delta;
+                        anyEmergency = true;
+                        if (p.dryTimer < emergencyTimeLeft) {
+                            emergencyTimeLeft = Math.ceil(p.dryTimer);
+                        }
+
+                        if (p.dryTimer <= 0) {
+                            p.status = 'dead';
+                            p.dryTriggered = false;
+                            p.plantMesh.material.color.setHex(0x221100); 
+                        }
+                    }
+
+                    if (p.status === 'planted') {
+                        let scaleY = Math.min(0.1 + (p.growth / 100) * 0.9, 1.0);
+                        p.plantMesh.scale.set(1, scaleY, 1);
+                        p.plantMesh.position.y = 0.3 + (scaleY * 0.5);
+                    }
+
+                    if (p.growth >= 100) {
+                        p.status = 'grown';
+                        p.plantMesh.material.color.setHex(0xff0033); 
+                    }
+                }
+            });
+
+            const alertZone = document.getElementById('alert-zone');
+            if (anyEmergency) {
+                alertZone.style.display = 'block';
+                document.getElementById('timer-val').innerText = Math.max(0, emergencyTimeLeft);
+            } else {
+                alertZone.style.display = 'none';
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body></html>
